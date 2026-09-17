@@ -67,8 +67,8 @@ func deriveStatus(nodeReady, agentReady bool) (string, string) {
 }
 
 type snapshot struct {
-	nodes      map[string]Node
-	agents     map[string]AgentEndpoint
+	nodes       map[string]Node
+	agents      map[string]AgentEndpoint
 	refreshedAt time.Time
 }
 
@@ -133,8 +133,8 @@ func (r *staticResolver) ResolveAgent(ctx context.Context, nodeName string) (Age
 
 func (r *staticResolver) refresh() {
 	next := snapshot{
-		nodes:      map[string]Node{},
-		agents:     map[string]AgentEndpoint{},
+		nodes:       map[string]Node{},
+		agents:      map[string]AgentEndpoint{},
 		refreshedAt: time.Now(),
 	}
 	for _, item := range r.cfg.Discovery.StaticNodes {
@@ -249,8 +249,8 @@ func (r *kubernetesResolver) refresh(ctx context.Context) {
 	}
 
 	next := snapshot{
-		nodes:      map[string]Node{},
-		agents:     map[string]AgentEndpoint{},
+		nodes:       map[string]Node{},
+		agents:      map[string]AgentEndpoint{},
 		refreshedAt: time.Now(),
 	}
 	for _, node := range nodes.Items {

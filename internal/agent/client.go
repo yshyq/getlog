@@ -221,13 +221,17 @@ func joinAgentURL(baseURL, directory, filename string) (string, error) {
 	if parsed.Scheme != "http" || parsed.Host == "" {
 		return "", fmt.Errorf("invalid agent base URL")
 	}
-	segments := []string{"logs", url.PathEscape(directory)}
+	segments := []string{"logs", directory}
+	escapedSegments := []string{"logs", url.PathEscape(directory)}
 	if filename != "" {
-		segments = append(segments, url.PathEscape(filename))
+		segments = append(segments, filename)
+		escapedSegments = append(escapedSegments, url.PathEscape(filename))
 	}
 	parsed.Path = "/" + strings.Join(segments, "/")
+	parsed.RawPath = "/" + strings.Join(escapedSegments, "/")
 	if filename == "" {
 		parsed.Path += "/"
+		parsed.RawPath += "/"
 	}
 	return parsed.String(), nil
 }

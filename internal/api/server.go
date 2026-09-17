@@ -29,12 +29,12 @@ type Dependencies struct {
 }
 
 type Server struct {
-	cfg       *config.Config
-	sessions  *auth.SessionManager
-	discovery discovery.Resolver
-	agent     *agent.Client
-	auditor   audit.Logger
-	assets    fs.FS
+	cfg            *config.Config
+	sessions       *auth.SessionManager
+	discovery      discovery.Resolver
+	agent          *agent.Client
+	auditor        audit.Logger
+	assets         fs.FS
 	trustedProxies []*net.IPNet
 }
 
@@ -48,12 +48,12 @@ func NewServer(deps Dependencies) http.Handler {
 		trustedProxies = append(trustedProxies, network)
 	}
 	s := &Server{
-		cfg:       deps.Config,
-		sessions:  deps.Sessions,
-		discovery: deps.Discovery,
-		agent:     deps.Agent,
-		auditor:   deps.Auditor,
-		assets:    deps.Assets,
+		cfg:            deps.Config,
+		sessions:       deps.Sessions,
+		discovery:      deps.Discovery,
+		agent:          deps.Agent,
+		auditor:        deps.Auditor,
+		assets:         deps.Assets,
 		trustedProxies: trustedProxies,
 	}
 	mux := http.NewServeMux()

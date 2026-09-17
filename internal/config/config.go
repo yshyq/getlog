@@ -16,13 +16,13 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Auth      AuthConfig      `yaml:"auth"`
-	Services  []ServiceConfig `yaml:"services"`
-	Discovery DiscoveryConfig `yaml:"discovery"`
-	FileList  FileListConfig  `yaml:"fileList"`
-	Download  DownloadConfig  `yaml:"download"`
-	Agent     AgentConfig     `yaml:"agent"`
+	Server     ServerConfig     `yaml:"server"`
+	Auth       AuthConfig       `yaml:"auth"`
+	Services   []ServiceConfig  `yaml:"services"`
+	Discovery  DiscoveryConfig  `yaml:"discovery"`
+	FileList   FileListConfig   `yaml:"fileList"`
+	Download   DownloadConfig   `yaml:"download"`
+	Agent      AgentConfig      `yaml:"agent"`
 	Kubernetes KubernetesConfig `yaml:"kubernetes"`
 }
 
@@ -33,15 +33,15 @@ type ServerConfig struct {
 }
 
 type AuthConfig struct {
-	Username       string   `yaml:"username"`
-	PasswordHash   string   `yaml:"passwordHash"`
-	SessionKey      []byte   `yaml:"-"`
-	SessionKeyRaw   string   `yaml:"sessionKey"`
-	SessionTTL      Duration `yaml:"sessionTTL"`
-	CookieName      string   `yaml:"cookieName"`
-	CookieSecure    bool     `yaml:"cookieSecure"`
-	FailureLimit    int      `yaml:"failureLimit"`
-	FailureWindow   Duration `yaml:"failureWindow"`
+	Username      string   `yaml:"username"`
+	PasswordHash  string   `yaml:"passwordHash"`
+	SessionKey    []byte   `yaml:"-"`
+	SessionKeyRaw string   `yaml:"sessionKey"`
+	SessionTTL    Duration `yaml:"sessionTTL"`
+	CookieName    string   `yaml:"cookieName"`
+	CookieSecure  bool     `yaml:"cookieSecure"`
+	FailureLimit  int      `yaml:"failureLimit"`
+	FailureWindow Duration `yaml:"failureWindow"`
 }
 
 type ServiceConfig struct {
@@ -66,8 +66,8 @@ type StaticNode struct {
 }
 
 type KubernetesConfig struct {
-	Namespace     string `yaml:"namespace"`
-	PodSelector   string `yaml:"podSelector"`
+	Namespace      string `yaml:"namespace"`
+	PodSelector    string `yaml:"podSelector"`
 	KubeconfigPath string `yaml:"kubeconfigPath"`
 }
 
