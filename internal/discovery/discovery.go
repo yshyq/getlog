@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -304,13 +303,8 @@ func podReady(conditions []corev1.PodCondition) bool {
 }
 
 func agentURL(host string, port int) string {
-	if stringsContainsColon(host) {
+	if strings.Contains(host, ":") {
 		host = "[" + host + "]"
 	}
 	return fmt.Sprintf("http://%s:%d", host, port)
-}
-
-func stringsContainsColon(value string) bool {
-	u := url.URL{Host: value}
-	return strings.Contains(u.Host, ":")
 }

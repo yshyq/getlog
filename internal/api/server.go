@@ -63,9 +63,9 @@ func NewServer(deps Dependencies) http.Handler {
 	mux.HandleFunc("POST /api/v1/logout", s.requireSession(s.logout))
 	mux.HandleFunc("GET /api/v1/session", s.requireSession(s.session))
 	mux.HandleFunc("GET /api/v1/nodes", s.requireSession(s.nodes))
-	mux.HandleFunc("/api/v1/nodes/", s.requireSession(s.nodeRoutes))
+	mux.HandleFunc("GET /api/v1/nodes/", s.requireSession(s.nodeRoutes))
 	mux.Handle("/", http.FileServerFS(s.assets))
-	return secureHeaders(withRequestID(mux))
+	return secureHeaders(s.withRequestID(mux))
 }
 
 func secureHeaders(next http.Handler) http.Handler {

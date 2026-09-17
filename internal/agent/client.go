@@ -96,41 +96,19 @@ func (c *Client) NewDownloadRequest(ctx context.Context, baseURL, directory, fil
 	if err != nil {
 		return nil, err
 	}
+
+	// Optional hard cap on the overall download duration. When set, the
+	// deadline context is cancelled either on body close (via cancelOnClose)
+	// or automatically when the timeout elapses.
+	var cancel context.CancelFunc
 	if c.download.MaxDuration.Duration > 0 {
-		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.download.MaxDuration.Duration)
-		defer func() {
-			if err != nil {
-				cancel()
-			}
-		}()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		req.Header.Set("Accept-Encoding", "identity")
-		if rangeHeader != "" {
-			req.Header.Set("Range", rangeHeader)
-		}
-		resp, err := c.http.Do(req)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
-		if rangeHeader != "" && resp.StatusCode == http.StatusOK {
-			resp.Body.Close()
-			return nil, ErrBadAgentReply
-		}
-		if resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500 || isRedirect(resp.StatusCode) {
-			resp.Body.Close()
-			return nil, ErrBadAgentReply
-		}
-		return resp, nil
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, err
 	}
 	req.Header.Set("Accept-Encoding", "identity")
@@ -139,14 +117,24 @@ func (c *Client) NewDownloadRequest(ctx context.Context, baseURL, directory, fil
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
+		if cancel != nil {
+			cancel()
+		}
 		return nil, err
 	}
-	if rangeHeader != "" && resp.StatusCode == http.StatusOK {
-		resp.Body.Close()
-		return nil, ErrBadAgentReply
+	if cancel != nil {
+		resp.Body = &cancelOnClose{ReadCloser: resp.Body, cancel: cancel}
 	}
+
+	// If the agent ignored a Range request and returned the full content,
+	// treat it as a complete download instead of failing the client (RFC 7233
+	// permits a server to ignore Range). Other 4xx such as 416 still pass
+	// through to the browser as-is.
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode >= 500 || isRedirect(resp.StatusCode) {
 		resp.Body.Close()
+		if cancel != nil {
+			cancel()
+		}
 		return nil, ErrBadAgentReply
 	}
 	return resp, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"net"
 	"net/http"
 
 	"log-download-portal/internal/security"
@@ -16,15 +17,32 @@ func requestIDFrom(ctx context.Context) string {
 	return value
 }
 
-func withRequestID(next http.Handler) http.Handler {
+// withRequestID mints a fresh request id for every connection. An external
+// X-Request-ID header is honoured only when the immediate peer is a trusted
+// proxy, so an end client cannot pin an arbitrary id into the audit log.
+func (s *Server) withRequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := r.Header.Get("X-Request-ID")
-		if !security.ValidateRequestID(requestID) {
-			requestID = newRequestID()
+		requestID := newRequestID()
+		if s.fromTrustedProxy(r) {
+			if external := r.Header.Get("X-Request-ID"); security.ValidateRequestID(external) {
+				requestID = external
+			}
 		}
 		w.Header().Set("X-Request-ID", requestID)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey{}, requestID)))
 	})
+}
+
+func (s *Server) fromTrustedProxy(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return s.isTrustedProxy(ip)
 }
 
 func newRequestID() string {

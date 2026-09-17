@@ -255,11 +255,13 @@ func (c *Config) Validate() error {
 			}
 		}
 	}
-	if c.Kubernetes.Namespace == "" {
-		return errors.New("kubernetes.namespace is required")
-	}
-	if c.Kubernetes.PodSelector == "" {
-		return errors.New("kubernetes.podSelector is required")
+	if c.Discovery.Mode == "kubernetes" {
+		if c.Kubernetes.Namespace == "" {
+			return errors.New("kubernetes.namespace is required")
+		}
+		if c.Kubernetes.PodSelector == "" {
+			return errors.New("kubernetes.podSelector is required")
+		}
 	}
 	if c.FileList.MaxItems <= 0 {
 		return errors.New("fileList.maxItems must be positive")

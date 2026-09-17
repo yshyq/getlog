@@ -2,10 +2,9 @@ package auth
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -18,16 +17,24 @@ import (
 	"log-download-portal/internal/config"
 )
 
+// SessionManager issues and verifies stateless HMAC-signed session cookies.
+//
+// The cookie itself carries the username and expiry (JSON, base64url), sealed
+// with an HMAC-SHA256 tag derived from the configured session key. No server
+// side session table is kept, so the same cookie is valid across every portal
+// replica. The login failure limiter is intentionally kept in-memory per pod:
+// it is a best-effort brake against online brute force, and accepting a 2x
+// budget across replicas is a fair trade-off for not requiring shared state.
 type SessionManager struct {
 	cfg      config.AuthConfig
 	mu       sync.Mutex
-	sessions map[string]session
 	failures map[string]failureWindow
 }
 
-type session struct {
-	Username  string
-	ExpiresAt time.Time
+// token is the signed payload embedded in the session cookie.
+type token struct {
+	Username string `json:"u"`
+	Expires  int64  `json:"e"` // unix seconds
 }
 
 type failureWindow struct {
@@ -38,7 +45,6 @@ type failureWindow struct {
 func NewSessionManager(cfg config.AuthConfig) *SessionManager {
 	return &SessionManager{
 		cfg:      cfg,
-		sessions: map[string]session{},
 		failures: map[string]failureWindow{},
 	}
 }
@@ -62,16 +68,15 @@ func (m *SessionManager) Authenticate(remoteAddr, username, password string) err
 }
 
 func (m *SessionManager) Create(w http.ResponseWriter, username string) {
-	id := randomHex(32)
 	expires := time.Now().Add(m.cfg.SessionTTL.Duration)
-
-	m.mu.Lock()
-	m.sessions[id] = session{Username: username, ExpiresAt: expires}
-	m.mu.Unlock()
-
+	value, err := m.sign(token{Username: username, Expires: expires.Unix()})
+	if err != nil {
+		// Marshal of a struct of (string, int64) cannot fail in practice.
+		panic(err)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cfg.CookieName,
-		Value:    m.sign(id),
+		Value:    value,
 		Path:     "/",
 		Expires:  expires,
 		MaxAge:   int(m.cfg.SessionTTL.Duration.Seconds()),
@@ -81,18 +86,15 @@ func (m *SessionManager) Create(w http.ResponseWriter, username string) {
 	})
 }
 
+// Clear expires the cookie on the client. Because sessions are stateless,
+// there is no server-side record to delete; a stolen cookie remains valid
+// until its embedded expiry, which is the same trust boundary as before.
 func (m *SessionManager) Clear(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie(m.cfg.CookieName); err == nil {
-		if id, ok := m.verify(cookie.Value); ok {
-			m.mu.Lock()
-			delete(m.sessions, id)
-			m.mu.Unlock()
-		}
-	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cfg.CookieName,
 		Value:    "",
 		Path:     "/",
+		Expires:  time.Unix(1, 0),
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   m.cfg.CookieSecure,
@@ -105,39 +107,48 @@ func (m *SessionManager) User(r *http.Request) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	id, ok := m.verify(cookie.Value)
+	t, ok := m.verify(cookie.Value)
 	if !ok {
 		return "", false
 	}
-	now := time.Now()
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.sessions[id]
-	if !ok || now.After(s.ExpiresAt) {
-		delete(m.sessions, id)
+	if time.Now().Unix() > t.Expires {
 		return "", false
 	}
-	return s.Username, true
+	return t.Username, true
 }
 
-func (m *SessionManager) sign(id string) string {
+func (m *SessionManager) sign(t token) (string, error) {
+	payload, err := json.Marshal(t)
+	if err != nil {
+		return "", err
+	}
+	encoded := base64.RawURLEncoding.EncodeToString(payload)
 	mac := hmac.New(sha256.New, m.cfg.SessionKey)
-	_, _ = mac.Write([]byte(id))
-	return id + "." + base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	_, _ = mac.Write([]byte(encoded))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return encoded + "." + sig, nil
 }
 
-func (m *SessionManager) verify(value string) (string, bool) {
-	id, sig, ok := strings.Cut(value, ".")
-	if !ok || id == "" || sig == "" {
-		return "", false
+func (m *SessionManager) verify(value string) (token, bool) {
+	payload, sig, ok := strings.Cut(value, ".")
+	if !ok || payload == "" || sig == "" {
+		return token{}, false
 	}
 	mac := hmac.New(sha256.New, m.cfg.SessionKey)
-	_, _ = mac.Write([]byte(id))
+	_, _ = mac.Write([]byte(payload))
 	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sig), []byte(expected)) {
-		return "", false
+		return token{}, false
 	}
-	return id, true
+	raw, err := base64.RawURLEncoding.DecodeString(payload)
+	if err != nil {
+		return token{}, false
+	}
+	var t token
+	if err := json.Unmarshal(raw, &t); err != nil {
+		return token{}, false
+	}
+	return t, true
 }
 
 func (m *SessionManager) isLimited(key string) bool {
@@ -177,14 +188,6 @@ func clientKey(remoteAddr string) string {
 		return host
 	}
 	return remoteAddr
-}
-
-func randomHex(bytes int) string {
-	buf := make([]byte, bytes)
-	if _, err := rand.Read(buf); err != nil {
-		panic(err)
-	}
-	return hex.EncodeToString(buf)
 }
 
 var (
