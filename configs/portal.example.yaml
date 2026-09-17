@@ -1,0 +1,53 @@
+# 本地演示配置。生产环境请通过 PORTAL_USERNAME、PORTAL_PASSWORD_HASH、
+# PORTAL_SESSION_KEY 注入凭据，并将 cookieSecure 保持为 true。
+server:
+  listen: ":8080"
+  readHeaderTimeout: 5s
+
+auth:
+  username: admin
+  # 示例占位符；请替换为 bcrypt 密码散列或用 PORTAL_PASSWORD_HASH 覆盖。
+  passwordHash: "$2a$10$replace.this.with.a.real.bcrypt.password.hash................."
+  # 示例占位符；生产环境使用随机的至少 32 字节密钥。
+  sessionKey: "replace-this-with-a-random-session-key-of-at-least-32-bytes"
+  sessionTTL: 8h
+  cookieName: log_portal_session
+  # 本地 HTTP 演示时设为 false；生产 HTTPS 必须为 true。
+  cookieSecure: false
+  failureLimit: 5
+  failureWindow: 5m
+
+services:
+  - id: api
+    displayName: API 服务
+    directory: api
+  - id: web
+    displayName: Web 服务
+    directory: web
+
+# static 便于本机界面联调；集群部署由 ConfigMap 改为 kubernetes。
+discovery:
+  mode: static
+  agentPort: 8080
+  staleAfter: 30s
+  watchRefreshInterval: 20s
+  staticNodes:
+    - name: node-a.example.internal
+      agentURL: http://127.0.0.1:18080
+      nodeReady: true
+      agentReady: true
+
+fileList:
+  maxItems: 10000
+  maxResponseBytes: 8MiB
+download:
+  bodyIdleTimeout: 60s
+  maxDuration: 0s
+  bufferBytes: 65536
+agent:
+  probeFileName: .log-portal-read-probe
+  probeScope: allServices
+  httpTimeout: 15s
+kubernetes:
+  namespace: log-portal
+  podSelector: app.kubernetes.io/component=agent,app.kubernetes.io/name=log-download-portal

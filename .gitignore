@@ -1,0 +1,9 @@
+# Local configuration may contain credentials.
+configs/portal.local.yaml
+
+# Go build output.
+bin/
+coverage.out
+
+# Python bytecode caches generated while maintaining the documents.
+docs/__pycache__/

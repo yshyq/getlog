@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#153b5b">
+    <title>节点日志下载</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">KUBERNETES OPERATIONS</p>
+          <h1>节点日志下载</h1>
+        </div>
+        <div class="account" id="account" hidden>
+          <span id="username"></span>
+          <button class="icon-button" id="logout" type="button" title="退出登录" aria-label="退出登录">↗</button>
+        </div>
+      </header>
+
+      <section class="login-panel" id="login-panel" aria-labelledby="login-title">
+        <div>
+          <p class="eyebrow">SECURE ACCESS</p>
+          <h2 id="login-title">登录后查看节点日志</h2>
+          <p class="muted">请选择节点、服务和日志文件后下载。</p>
+        </div>
+        <form id="login-form" class="login-form">
+          <label>用户名<input id="login-username" name="username" autocomplete="username" required></label>
+          <label>密码<input id="login-password" name="password" type="password" autocomplete="current-password" required></label>
+          <button class="primary" type="submit">登录</button>
+          <p class="form-error" id="login-error" role="alert"></p>
+        </form>
+      </section>
+
+      <section class="workspace" id="workspace" hidden>
+        <div class="toolbar">
+          <div>
+            <p class="eyebrow">LOG INVENTORY</p>
+            <h2 id="workspace-title">选择一个节点</h2>
+          </div>
+          <button class="secondary" id="refresh" type="button">刷新节点</button>
+        </div>
+        <p class="notice" id="notice" role="status"></p>
+        <div class="columns">
+          <section class="pane" aria-labelledby="nodes-heading">
+            <div class="pane-heading"><h3 id="nodes-heading">节点</h3><span id="node-count"></span></div>
+            <div class="list" id="nodes"></div>
+          </section>
+          <section class="pane" aria-labelledby="services-heading">
+            <div class="pane-heading"><h3 id="services-heading">服务</h3></div>
+            <div class="list" id="services"><p class="empty">先选择节点。</p></div>
+          </section>
+          <section class="pane files-pane" aria-labelledby="files-heading">
+            <div class="pane-heading"><h3 id="files-heading">日志文件</h3><span id="file-count"></span></div>
+            <div class="list files" id="files"><p class="empty">先选择服务。</p></div>
+          </section>
+        </div>
+      </section>
+    </main>
+    <template id="node-template"><button class="list-row node-row" type="button"><span class="row-title"></span><span class="badge"></span><small class="row-detail"></small></button></template>
+    <template id="service-template"><button class="list-row" type="button"><span class="row-title"></span><small class="row-detail"></small></button></template>
+    <template id="file-template"><div class="file-row"><div><span class="row-title"></span><small class="row-detail"></small></div><a class="download" download>下载</a></div></template>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

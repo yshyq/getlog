@@ -1,0 +1,300 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: log-portal
+---
+# 创建后替换两个值。passwordHash 必须是 bcrypt 散列；sessionKey 至少 32 字节。
+apiVersion: v1
+kind: Secret
+metadata:
+  name: log-portal-auth
+  namespace: log-portal
+type: Opaque
+stringData:
+  username: CHANGE_ME
+  passwordHash: CHANGE_ME_BCRYPT_HASH
+  sessionKey: CHANGE_ME_RANDOM_SESSION_KEY
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-portal-config
+  namespace: log-portal
+data:
+  portal.yaml: |
+    server:
+      listen: ":8080"
+      readHeaderTimeout: 5s
+    auth:
+      sessionTTL: 8h
+      cookieName: log_portal_session
+      cookieSecure: true
+      failureLimit: 5
+      failureWindow: 5m
+    services:
+      - id: api
+        displayName: API 服务
+        directory: api
+      - id: web
+        displayName: Web 服务
+        directory: web
+    discovery:
+      mode: kubernetes
+      agentPort: 8080
+      staleAfter: 30s
+      watchRefreshInterval: 20s
+    fileList:
+      maxItems: 10000
+      maxResponseBytes: 8MiB
+    download:
+      bodyIdleTimeout: 60s
+      maxDuration: 0s
+      bufferBytes: 65536
+    agent:
+      probeFileName: .log-portal-read-probe
+      probeScope: allServices
+      httpTimeout: 15s
+    kubernetes:
+      namespace: log-portal
+      podSelector: app.kubernetes.io/component=agent,app.kubernetes.io/name=log-download-portal
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: log-portal
+  namespace: log-portal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: log-portal-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: log-portal-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: log-portal-reader
+subjects:
+  - kind: ServiceAccount
+    name: log-portal
+    namespace: log-portal
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: log-portal
+  namespace: log-portal
+  labels:
+    app.kubernetes.io/name: log-download-portal
+    app.kubernetes.io/component: portal
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: log-download-portal
+      app.kubernetes.io/component: portal
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: log-download-portal
+        app.kubernetes.io/component: portal
+    spec:
+      serviceAccountName: log-portal
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: portal
+          image: registry.example.com/log-download-portal:TAG
+          args: ["-config", "/etc/log-portal/portal.yaml"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORTAL_USERNAME
+              valueFrom: { secretKeyRef: { name: log-portal-auth, key: username } }
+            - name: PORTAL_PASSWORD_HASH
+              valueFrom: { secretKeyRef: { name: log-portal-auth, key: passwordHash } }
+            - name: PORTAL_SESSION_KEY
+              valueFrom: { secretKeyRef: { name: log-portal-auth, key: sessionKey } }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/log-portal
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+      volumes:
+        - name: config
+          configMap: { name: log-portal-config }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: log-portal
+  namespace: log-portal
+spec:
+  selector:
+    app.kubernetes.io/name: log-download-portal
+    app.kubernetes.io/component: portal
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# 适用于 ingress-nginx；其他入口控制器需设置其等效的禁用响应缓冲配置。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: log-portal
+  namespace: log-portal
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-max-temp-file-size: "0"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: logs.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: log-portal
+                port:
+                  name: http
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: log-agent-nginx
+  namespace: log-portal
+data:
+  nginx.conf: |
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr warn;
+    events {}
+    http {
+      access_log off;
+      sendfile on;
+      server {
+        listen 8080;
+        server_tokens off;
+        default_type application/octet-stream;
+        location = /healthz { return 204; }
+        location /logs/api/ { alias /var/log/services/api/; autoindex on; autoindex_format json; }
+        location /logs/web/ { alias /var/log/services/web/; autoindex on; autoindex_format json; }
+      }
+    }
+---
+# 宿主机日志目录必须允许该非 root 容器读取；每个允许目录中放置
+# .log-portal-read-probe 文件，作为 readiness 的显式读权限检查。
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: log-agent
+  namespace: log-portal
+  labels:
+    app.kubernetes.io/name: log-download-portal
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: log-download-portal
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: log-download-portal
+        app.kubernetes.io/component: agent
+    spec:
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - name: agent-http
+              containerPort: 8080
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: host-logs
+              mountPath: /var/log/services
+              readOnly: true
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "test -r /var/log/services/api/.log-portal-read-probe && test -r /var/log/services/web/.log-portal-read-probe"]
+          livenessProbe:
+            httpGet: { path: /healthz, port: agent-http }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+      volumes:
+        - name: nginx-config
+          configMap: { name: log-agent-nginx }
+        - name: host-logs
+          hostPath:
+            path: /var/log/services
+            type: Directory
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: log-portal-ingress
+  namespace: log-portal
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: log-download-portal
+      app.kubernetes.io/component: portal
+  policyTypes: ["Ingress"]
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: log-agent-from-portal
+  namespace: log-portal
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: log-download-portal
+      app.kubernetes.io/component: agent
+  policyTypes: ["Ingress"]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: log-download-portal
+              app.kubernetes.io/component: portal
+      ports:
+        - protocol: TCP
+          port: 8080
